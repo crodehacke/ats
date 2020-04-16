@@ -27,17 +27,14 @@ EnthalpyEvaluator::EnthalpyEvaluator(Teuchos::ParameterList& plist) :
 
   // -- pressure
   if (include_work_) {
-    pres_key_ = plist_.get<std::string>("pressure key",
-            Keys::getKey(domain_name, "pressure"));
+    pres_key_ = Keys::readKey(plist_, domain_name, "pressure", "pressure");
     dependencies_.insert(pres_key_);
 
-    dens_key_ = plist_.get<std::string>("molar density key",
-            Keys::getKey(domain_name, "molar_density_liquid"));
+    dens_key_ = Keys::readKey(plist_, domain_name, "molar density liquid", "molar_density_liquid");
     dependencies_.insert(dens_key_);
   }
 
-  ie_key_ = plist_.get<std::string>("internal energy key",
-          Keys::getKey(domain_name, "internal_energy_liquid"));
+  ie_key_ = Keys::readKey(plist_, domain_name, "internal energy liquid", "internal_energy_liquid");
   dependencies_.insert(ie_key_);
 
 };
@@ -88,7 +85,7 @@ void EnthalpyEvaluator::EvaluateFieldPartialDerivative_(const Teuchos::Ptr<State
   if (wrt_key == ie_key_) {
     result->PutScalar(1.);
   } else if (wrt_key ==pres_key_) {
-    ASSERT(include_work_);
+    AMANZI_ASSERT(include_work_);
     
     Teuchos::RCP<const CompositeVector> n_l = S->GetFieldData(dens_key_);
 
@@ -105,7 +102,7 @@ void EnthalpyEvaluator::EvaluateFieldPartialDerivative_(const Teuchos::Ptr<State
     }
 
   } else if (wrt_key ==dens_key_) {
-    ASSERT(include_work_);
+    AMANZI_ASSERT(include_work_);
     
     Teuchos::RCP<const CompositeVector> pres = S->GetFieldData(pres_key_);
     Teuchos::RCP<const CompositeVector> n_l = S->GetFieldData(dens_key_);

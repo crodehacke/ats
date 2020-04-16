@@ -35,7 +35,7 @@ void AdvectionDiffusion::AddAccumulation_(Teuchos::RCP<CompositeVector> g) {
     S_next_->GetFieldData("cell_volume");
 
   double dt = S_next_->time() - S_inter_->time();
-  ASSERT(dt > 0.);
+  AMANZI_ASSERT(dt > 0.);
 
   //  --   g <-- g - (cv*h)_t0/dt
   g->ViewComponent("cell",false)->Multiply(-1./dt,
@@ -55,8 +55,10 @@ void AdvectionDiffusion::AddAdvection_(const Teuchos::RCP<State> S,
   Teuchos::RCP<const CompositeVector> mass_flux = S->GetFieldData("mass_flux");
   matrix_adv_->global_operator()->Init();
   matrix_adv_->Setup(*mass_flux);
-  matrix_adv_->UpdateMatrices(*mass_flux);
-  matrix_adv_->ApplyBCs(bc_, false);
+  matrix_adv_->SetBCs(bc_, bc_);
+  matrix_adv_->UpdateMatrices(mass_flux.ptr());
+  matrix_adv_->ApplyBCs(false, true, false);
+
 
   // apply
   Teuchos::RCP<const CompositeVector> temp = S->GetFieldData("temperature");
@@ -81,7 +83,7 @@ void AdvectionDiffusion::ApplyDiffusion_(const Teuchos::RCP<State> S,
 
 
   // finish assembly of the stiffness matrix
-  matrix_diff_->ApplyBCs(true, true);
+  matrix_diff_->ApplyBCs(true, true, true);
 
   // calculate the residual
   matrix_diff_->global_operator()->ComputeNegativeResidual(*temp, *g);

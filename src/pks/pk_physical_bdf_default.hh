@@ -1,5 +1,5 @@
 /* -*-  mode: c++; indent-tabs-mode: nil -*- */
-//! Standard base for most implemented PKs, this combines both domains/meshes of PKPhysicalBase and BDF methods of PKBDFBase.
+//! Default implementation of both BDF and Physical PKs.
 
 /*
   ATS is released under the three-clause BSD License. 
@@ -13,30 +13,45 @@
 /*!
 
 A base class for all PKs that are both physical, in the sense that they
-implement an equation and are not couplers, and support the implicit
-integration interface.  This largely just supplies a default error norm based
-on error in conservation relative to the extent of the conserved quantity.
-
-* `"absolute error tolerance`" [double] **1.0**
-
-  Absolute tolerance, :math:`a_tol` in the equation below.
-
-* `"relative error tolerance`" [double] **1.0**
-
-  Relative tolerance, :math:`r_tol` in the equation below.
+implement an equation and are not couplers, and BDF, in the sense that they
+support the implicit integration interface.  This largely just supplies a
+default error norm based on error in conservation relative to the extent of the
+conserved quantity.
 
 By default, the error norm used by solvers is given by:
 
 :math:`ENORM(u, du) = |du| / ( a_tol + r_tol * |u| )`
 
 The defaults here are typically good, or else good defaults are set in the
-code, so these need not be supplied.
+code, so usually are not supplied by the user.
 
 
-NOTE: ``PKPhysicalBDFBase -->`` PKBDFBase_
-      ``PKPhysicalBDFBase -->`` PKPhysicalBase_
-      ``PKPhysicalBDFBase (v)-->`` PKDefaultBase_
+.. _pk-physical-bdf-default-spec:
+.. admonition:: pk-physical-bdf-default-spec
 
+    * `"conserved quantity key`" ``[string]`` Name of the conserved quantity.
+      Usually a sane default is set by the PK.
+
+    * `"absolute error tolerance`" ``[double]`` **1.0** Absolute tolerance,
+      :math:`a_tol` in the equation above.  Unit are the same as the conserved
+      quantity.  Note that this default is often overridden by PKs with more
+      physical values, and very rarely are these set by the user.
+
+    * `"relative error tolerance`" ``[double]`` **1.0** Relative tolerance,
+      :math:`r_tol` in the equation above.  ``[-]`` Note that this default can
+      be overridden by PKs with more physical values, and very rarely are these
+      set by the user.
+
+    * `"flux error tolerance`" ``[double]`` **1.0** Relative tolerance on the
+      flux.  Note that this default is often overridden by PKs with more physical
+      values, and very rarely are these set by the user.
+
+    INCLUDES:
+
+    - ``[pk-bdf-default-spec]`` *Is a* `PK: BDF`_
+    - ``[pk-physical-default-spec]`` *Is a* `PK: Physical`_
+    
+      
 */
 
 
@@ -47,6 +62,7 @@ NOTE: ``PKPhysicalBDFBase -->`` PKBDFBase_
 #include "pk_bdf_default.hh"
 #include "pk_physical_default.hh"
 
+#include "BCs.hh"
 #include "Operator.hh"
 
 namespace Amanzi {
@@ -66,33 +82,33 @@ class PK_PhysicalBDF_Default : public PK_BDF_Default,
   {}
 
 
-  virtual void set_states(const Teuchos::RCP<const State>& S,
+  virtual void set_states(const Teuchos::RCP<State>& S,
                           const Teuchos::RCP<State>& S_inter,
-                          const Teuchos::RCP<State>& S_next);
+                          const Teuchos::RCP<State>& S_next) override;
     
-  virtual void Setup(const Teuchos::Ptr<State>& S);
+  virtual void Setup(const Teuchos::Ptr<State>& S) override;
 
-  virtual void set_dt(double dt) { dt_ = dt; }
+  virtual void set_dt(double dt) override { dt_ = dt; }
 
   // initialize.  Note both BDFBase and PhysicalBase have initialize()
   // methods, so we need a unique overrider.
-  virtual void Initialize(const Teuchos::Ptr<State>& S);
+  virtual void Initialize(const Teuchos::Ptr<State>& S) override;
 
   // Default preconditioner is Picard
-  virtual int ApplyPreconditioner(Teuchos::RCP<const TreeVector> u, Teuchos::RCP<TreeVector> Pu) {
+  virtual int ApplyPreconditioner(Teuchos::RCP<const TreeVector> u, Teuchos::RCP<TreeVector> Pu) override {
     *Pu = *u;
     return 0;
   }
 
   // updates the preconditioner, default does nothing
-  virtual void UpdatePreconditioner(double t, Teuchos::RCP<const TreeVector> up, double h) {}
+  virtual void UpdatePreconditioner(double t, Teuchos::RCP<const TreeVector> up, double h) override {}
 
   // Default implementations of BDFFnBase methods.
   // -- Compute a norm on u-du and return the result.
   virtual double ErrorNorm(Teuchos::RCP<const TreeVector> u,
-                       Teuchos::RCP<const TreeVector> du);
+                       Teuchos::RCP<const TreeVector> du) override;
 
-  virtual bool ValidStep() {
+  virtual bool ValidStep() override {
     return PK_Physical_Default::ValidStep() && PK_BDF_Default::ValidStep();
   }
   
@@ -100,9 +116,9 @@ class PK_PhysicalBDF_Default : public PK_BDF_Default,
   //    integration scheme is changing the value of the solution in
   //    state.
 
-  virtual void ChangedSolution(const Teuchos::Ptr<State>& S);
+  virtual void ChangedSolution(const Teuchos::Ptr<State>& S) override;
 
-  virtual void ChangedSolution();
+  virtual void ChangedSolution() override;
 
   virtual double BoundaryValue(const Teuchos::RCP<const Amanzi::CompositeVector>& solution, int face_id);
   virtual int BoundaryDirection(int face_id);
@@ -112,8 +128,8 @@ class PK_PhysicalBDF_Default : public PK_BDF_Default,
   Teuchos::RCP<Operators::Operator> preconditioner() { return preconditioner_; }
 
   // BC access
-  std::vector<int>& bc_markers() { return bc_markers_; }
-  std::vector<double>& bc_values() { return bc_values_; }
+  std::vector<int>& bc_markers() { return bc_->bc_model(); }
+  std::vector<double>& bc_values() { return bc_->bc_value(); }
   Teuchos::RCP<Operators::BCs> BCs() { return bc_; }
 
  protected:
@@ -121,8 +137,6 @@ class PK_PhysicalBDF_Default : public PK_BDF_Default,
   Teuchos::RCP<Operators::Operator> preconditioner_;
 
   // BCs
-  std::vector<int> bc_markers_;
-  std::vector<double> bc_values_;
   Teuchos::RCP<Operators::BCs> bc_;
 
   // error criteria

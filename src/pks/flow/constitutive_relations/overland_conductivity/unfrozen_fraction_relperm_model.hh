@@ -12,7 +12,7 @@
 
 #include "Teuchos_ParameterList.hpp"
 #include "dbc.hh"
-#include "factory.hh"
+#include "Factory.hh"
 #include "surface_relperm_model.hh"
 
 namespace Amanzi {
@@ -27,12 +27,12 @@ class UnfrozenFractionRelPermModel : public SurfaceRelPermModel {
   virtual double SurfaceRelPerm(double uf, double h);
 
   virtual double DSurfaceRelPermDUnfrozenFraction(double uf, double h) {
-    ASSERT(0);
+    AMANZI_ASSERT(0);
     return 0.;
   }
 
   virtual double DSurfaceRelPermDPondedDepth(double uf, double h) {
-    ASSERT(0);
+    AMANZI_ASSERT(0);
     return 0.;
   }
 

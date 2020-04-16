@@ -26,7 +26,8 @@ ElevationEvaluator::ElevationEvaluator(Teuchos::ParameterList& plist) :
   // mesh has been deformed. The indicator for the mesh deformation event is the 
   // the deformation field.
   dynamic_mesh_ = plist_.get<bool>("dynamic mesh",false);
-  if (dynamic_mesh_) dependencies_.insert("deformation");
+  deformation_key_ = Keys::getKey(domain, "deformation");
+  if (dynamic_mesh_) dependencies_.insert(deformation_key_);
 }
 
 void ElevationEvaluator::EvaluateField_(const Teuchos::Ptr<State>& S,
@@ -48,8 +49,8 @@ void ElevationEvaluator::EvaluateField_(const Teuchos::Ptr<State>& S,
     for (int bf=0; bf!=nbfaces; ++bf) {
       // given a boundary face, we need the internal cell to choose the right WRM
       AmanziMesh::Entity_ID f = face_map.LID(vandelay_map.GID(bf));
-      slope->Mesh()->face_get_cells(f, AmanziMesh::USED, &cells);
-      ASSERT(cells.size() == 1);
+      slope->Mesh()->face_get_cells(f, AmanziMesh::Parallel_type::ALL, &cells);
+      AMANZI_ASSERT(cells.size() == 1);
 
       slope_bf[0][bf] = slope_c[0][cells[0]];
     }
@@ -59,7 +60,7 @@ void ElevationEvaluator::EvaluateField_(const Teuchos::Ptr<State>& S,
 // This is hopefully never called?
 void ElevationEvaluator::EvaluateFieldPartialDerivative_(const Teuchos::Ptr<State>& S,
         Key wrt_key, const std::vector<Teuchos::Ptr<CompositeVector> >& results) {
-  ASSERT(0);
+  AMANZI_ASSERT(0);
 }
 
 // Custom EnsureCompatibility forces this to be updated once.

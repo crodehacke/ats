@@ -12,6 +12,10 @@
 #include "Epetra_MpiComm.h"
 #include "Teuchos_ParameterList.hpp"
 #include "Teuchos_TimeMonitor.hpp"
+#include "AmanziComm.hh"
+#include "AmanziTypes.hh"
+#include "Teuchos_ParameterXMLFileReader.hpp"
+#include "Teuchos_XMLParameterListHelpers.hpp"
 
 #include "MeshAudit.hh"
 #include "MeshFactory.hh"
@@ -20,33 +24,29 @@
 #include "MeshSurfaceCell.hh"
 #include "GeometricModel.hh"
 
-#include "plant_1D_mesh.hh"
-
 #include "ats_mesh_factory.hh"
 
 namespace ATS {
 
 void
 createMesh(Teuchos::ParameterList& mesh_plist,
-           const Teuchos::RCP<Epetra_MpiComm>& comm,
+           const Amanzi::Comm_ptr_type& comm,           
            const Teuchos::RCP<Amanzi::AmanziGeometry::GeometricModel>& gm,
            Amanzi::State& S)
 {
   auto mesh_type = mesh_plist.get<std::string>("mesh type");
   if (mesh_type == "read mesh file") {
-    // create the MSTK factory
-    Amanzi::AmanziMesh::MeshFactory factory(comm.get());
-    Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
-    prefs.clear();
-    prefs.push_back(Amanzi::AmanziMesh::MSTK);
+    //Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
+    //prefs.clear();
+    //prefs.push_back(Amanzi::AmanziMesh::MSTK);
     
     // from file
-    Teuchos::ParameterList read_params = mesh_plist.sublist("read mesh file parameters");
-
+    auto read_params = Teuchos::rcp(new Teuchos::ParameterList(mesh_plist.sublist("read mesh file parameters")));
+    
     // file name
     std::string file;
-    if (read_params.isParameter("file")) {
-      file = read_params.get<std::string>("file");
+    if (read_params -> isParameter("file")) {
+      file = read_params -> get<std::string>("file");
     } else {
       Errors::Message msg("\"read mesh file\" list missing \"file\" parameter.");
       Exceptions::amanzi_throw(msg);
@@ -54,9 +54,9 @@ createMesh(Teuchos::ParameterList& mesh_plist,
 
     // file format
     std::string format;
-    if (read_params.isParameter("format")) {
+    if (read_params -> isParameter("format")) {
       // Is the format one that we can read?
-      format = read_params.get<std::string>("format");
+      format = read_params -> get<std::string>("format");
       if (format != "Exodus II") {
         Errors::Message msg;
         msg << "\"read mesh file\" parameter \"format\" with value \"" << format
@@ -67,7 +67,11 @@ createMesh(Teuchos::ParameterList& mesh_plist,
       Errors::Message msg("\"read mesh file\" parameter \"format\" missing.");
       Exceptions::amanzi_throw(msg);
     }
-    auto mesh = factory.create(file, gm);
+
+    // create the MSTK factory
+    Amanzi::AmanziMesh::MeshFactory factory(comm, gm, read_params);
+    
+    auto mesh = factory.create(file);
 
     if (mesh_plist.isParameter("build columns from set")) {
       std::string regionname = mesh_plist.get<std::string>("build columns from set");
@@ -81,30 +85,47 @@ createMesh(Teuchos::ParameterList& mesh_plist,
     
   } else if (mesh_type == "generate mesh") {
     // create the MSTK factory
-    Amanzi::AmanziMesh::MeshFactory factory(comm.get());
-    Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
-    prefs.clear();
-    prefs.push_back(Amanzi::AmanziMesh::MSTK);
+    // Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
+    // prefs.clear();
+    // prefs.push_back(Amanzi::AmanziMesh::MSTK);
 
     // generated mesh
-    auto mesh = factory.create(mesh_plist.sublist("generate mesh parameters"), gm);
+
+    auto genmesh_params = Teuchos::rcp(new Teuchos::ParameterList(mesh_plist.sublist("generate mesh parameters")));
+
+    Amanzi::AmanziMesh::MeshFactory factory(comm, gm, genmesh_params);
+    
+    auto mesh = factory.create(*genmesh_params);
     bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
+    if (mesh_plist.isParameter("build columns from set")) {
+      std::string regionname = mesh_plist.get<std::string>("build columns from set");
+      mesh->build_columns(regionname);
+    }
+
     checkVerifyMesh(mesh_plist, mesh);
+    std::string name = mesh_plist.name();
     S.RegisterMesh(Amanzi::Keys::cleanPListName(mesh_plist.name()), mesh, deformable);
 
   } else if (mesh_type == "logical mesh") {
     // -- from logical mesh file
-    Amanzi::AmanziMesh::MeshLogicalFactory fac(comm.get(), gm);
-    auto mesh = fac.Create(mesh_plist.sublist("logical mesh parameters"));
+    Amanzi::AmanziMesh::MeshLogicalFactory fac(comm, gm);
+    auto log_mesh_params = mesh_plist.sublist("logical mesh parameters");
+    Teuchos::RCP<Amanzi::AmanziMesh::Mesh> mesh;
+    if (log_mesh_params.isParameter("read from file")) {
+      auto filename = log_mesh_params.get<std::string>("read from file");
+      auto my_list_in_other_file = Teuchos::getParametersFromXmlFile(filename);
+      mesh = fac.Create(*my_list_in_other_file);
+    } else {
+      mesh = fac.Create(log_mesh_params);
+    }
     bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
     checkVerifyMesh(mesh_plist, mesh);
     S.RegisterMesh(Amanzi::Keys::cleanPListName(mesh_plist.name()), mesh, deformable);
 
   } else if (mesh_type == "aliased") {
-    S.AliasMesh(mesh_plist.sublist("aliased parameters").get<std::string>("alias"), Amanzi::Keys::cleanPListName(mesh_plist.name()));
-    
+    S.AliasMesh(mesh_plist.sublist("aliased parameters").get<std::string>("alias"), Amanzi::Keys::cleanPListName(mesh_plist.name()));    
   } else if (mesh_type == "surface") {
     Teuchos::ParameterList& surface_plist = mesh_plist.sublist("surface parameters");
     std::vector<std::string> setnames;
@@ -120,18 +141,19 @@ createMesh(Teuchos::ParameterList& mesh_plist,
     Teuchos::RCP<Amanzi::AmanziMesh::Mesh> surface3D_mesh = Teuchos::null;
     Teuchos::RCP<Amanzi::AmanziMesh::Mesh> surface_mesh = Teuchos::null;
 
+    auto surface_plist_rcp = Teuchos::rcp(new Teuchos::ParameterList(surface_plist));
     // create the MSTK factory
-    Amanzi::AmanziMesh::MeshFactory factory(comm.get());
-    Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
-    prefs.clear();
-    prefs.push_back(Amanzi::AmanziMesh::MSTK);
+    Amanzi::AmanziMesh::MeshFactory factory(comm, gm, surface_plist_rcp);
+    // Amanzi::AmanziMesh::FrameworkPreference prefs(factory.preference());
+    // prefs.clear();
+    // prefs.push_back(Amanzi::AmanziMesh::MSTK);
 
     auto parent = S.GetMesh(surface_plist.get<std::string>("parent domain", "domain"));
     if (parent->manifold_dimension() == 3) {
-      surface3D_mesh = factory.create(&*parent,setnames,Amanzi::AmanziMesh::FACE,false,false);
-      surface_mesh = factory.create(&*parent,setnames,Amanzi::AmanziMesh::FACE,true,false);
+      surface3D_mesh = factory.create(parent,setnames,Amanzi::AmanziMesh::FACE,false,true,false);
+      surface_mesh = factory.create(parent,setnames,Amanzi::AmanziMesh::FACE,true,true,false);
     } else {
-      surface_mesh = factory.create(&*parent,setnames,Amanzi::AmanziMesh::CELL,true,false);
+      surface_mesh = factory.create(parent,setnames,Amanzi::AmanziMesh::CELL,true,true,false);
     }
     bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
@@ -148,7 +170,7 @@ createMesh(Teuchos::ParameterList& mesh_plist,
     Teuchos::ParameterList& column_list = mesh_plist.sublist("column parameters");
     int lid = column_list.get<int>("entity LID");
     auto parent = S.GetMesh(column_list.get<std::string>("parent domain", "domain"));
-    auto mesh = Teuchos::rcp(new Amanzi::AmanziMesh::MeshColumn(*parent, lid));
+    auto mesh = Teuchos::rcp(new Amanzi::AmanziMesh::MeshColumn(parent, lid));
     bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
     checkVerifyMesh(mesh_plist, mesh);
@@ -157,9 +179,11 @@ createMesh(Teuchos::ParameterList& mesh_plist,
   } else if (mesh_type == "column surface") {
     Teuchos::ParameterList& column_list = mesh_plist.sublist("column surface parameters");
     std::string surface_setname = column_list.get<std::string>("subgrid set name", "surface");
-    std::string parent_domain_name = mesh_plist.name().substr(8,mesh_plist.name().size());
+
+    std::size_t pos = mesh_plist.name().find('_');
+    std::string parent_domain_name = mesh_plist.name().substr(pos+1,mesh_plist.name().size());
     auto parent = S.GetMesh(parent_domain_name);
-    auto mesh = Teuchos::rcp(new Amanzi::AmanziMesh::MeshSurfaceCell(*parent, surface_setname));
+    auto mesh = Teuchos::rcp(new Amanzi::AmanziMesh::MeshSurfaceCell(parent, surface_setname));
 
     bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
@@ -181,12 +205,13 @@ createMesh(Teuchos::ParameterList& mesh_plist,
     // etc: Note that this explicitly and purposefully leaks the comm's
     // memory.  This is due to poor design of the mesh infrastructure, where a
     // bare pointer is stored instead of a reference counted pointer.  
-    Teuchos::RCP<Epetra_MpiComm> comm_self =
-        Teuchos::rcpFromRef(*(new Epetra_MpiComm(MPI_COMM_SELF)));
+    // Teuchos::RCP<Epetra_MpiComm> comm_self =
+    //     Teuchos::rcpFromRef(*(new Epetra_MpiComm(MPI_COMM_SELF)));
+    auto comm_self = Amanzi::getCommSelf();
     
     // for each id in the regions of the parent mesh on entity, create a subgrid mesh
     Amanzi::AmanziMesh::Entity_ID_List entities;
-    parent_mesh->get_set_entities(regionname, kind, Amanzi::AmanziMesh::OWNED, &entities);
+    parent_mesh->get_set_entities(regionname, kind, Amanzi::AmanziMesh::Parallel_type::OWNED, &entities);
     const Epetra_Map& map = parent_mesh->map(kind,false);
     
     for (auto lid : entities) {
@@ -212,15 +237,16 @@ createMesh(Teuchos::ParameterList& mesh_plist,
         subgrid_i_param_list.set("subgrid region name", regionname);
       if (!subgrid_i_param_list.isParameter("parent domain"))
         subgrid_i_param_list.set("parent domain", parent_domain_name);
+
       createMesh(subgrid_i_list, comm_self, gm, S);
     }
 
   } else if (mesh_type == "Sperry 1D column") {
-    auto mesh = ATS::Testing::plantMesh(comm, gm, true);
-    bool deformable = mesh_plist.get<bool>("deformable mesh",false);
+    // auto mesh = Testing::plantMesh(comm, gm, true);
+    // bool deformable = mesh_plist.get<bool>("deformable mesh",false);
 
-    checkVerifyMesh(mesh_plist, mesh);
-    S.RegisterMesh(Amanzi::Keys::cleanPListName(mesh_plist.name()), mesh, deformable);
+    // checkVerifyMesh(mesh_plist, mesh);
+    // S.RegisterMesh(Amanzi::Keys::cleanPListName(mesh_plist.name()), mesh, deformable);
     
   } else {
     Errors::Message msg;
@@ -235,10 +261,13 @@ bool checkVerifyMesh(Teuchos::ParameterList& mesh_plist,
                      Teuchos::RCP<Amanzi::AmanziMesh::Mesh> mesh)
 {
   // mesh verification
-  ASSERT(!mesh.is_null());
+  AMANZI_ASSERT(!mesh.is_null());
   bool verify = mesh_plist.get<bool>("verify mesh", false);
   if (verify) {
 
+
+
+    
     int num_procs = mesh->get_comm()->NumProc();
     int rank = mesh->get_comm()->MyPID();
     
@@ -266,7 +295,7 @@ bool checkVerifyMesh(Teuchos::ParameterList& mesh_plist,
       int status = mesh_auditor.Verify();        // check the mesh
       if (status != 0) ierr = 1;
       
-      mesh->get_comm()->SumAll(&ierr, &aerr, 1);
+       mesh->get_comm()->SumAll(&ierr, &aerr, 1);
       if (aerr == 0) {
         if (mesh->get_comm()->MyPID() == 0)
           std::cout << "Mesh Audit confirms that mesh is ok" << std::endl;
@@ -283,7 +312,7 @@ bool checkVerifyMesh(Teuchos::ParameterList& mesh_plist,
 
 void
 createMeshes(Teuchos::ParameterList& global_list,
-             const Teuchos::RCP<Epetra_MpiComm>& comm,
+             const Amanzi::Comm_ptr_type& comm,
              const Teuchos::RCP<Amanzi::AmanziGeometry::GeometricModel>& gm,
              Amanzi::State& S)
 {
@@ -317,7 +346,7 @@ createMeshes(Teuchos::ParameterList& global_list,
   if (global_list.isSublist("visualization columns")) {
     auto surface_mesh = S.GetMesh("surface");
     Teuchos::ParameterList& vis_ss_plist = global_list.sublist("visualization columns"); 
-    int nc = surface_mesh->num_entities(Amanzi::AmanziMesh::CELL, Amanzi::AmanziMesh::OWNED);
+    int nc = surface_mesh->num_entities(Amanzi::AmanziMesh::CELL, Amanzi::AmanziMesh::Parallel_type::OWNED);
    
     for (int c=0; c!=nc; ++c){
       int id = surface_mesh->cell_map(false).GID(c);
@@ -333,7 +362,7 @@ createMeshes(Teuchos::ParameterList& global_list,
   if (global_list.isSublist("visualization surface cells")) {
     auto surface_mesh = S.GetMesh("surface");
     Teuchos::ParameterList& vis_sf_plist = global_list.sublist("visualization surface cells");
-    int nc = surface_mesh->num_entities(Amanzi::AmanziMesh::CELL, Amanzi::AmanziMesh::OWNED);
+    int nc = surface_mesh->num_entities(Amanzi::AmanziMesh::CELL, Amanzi::AmanziMesh::Parallel_type::OWNED);
     for (int c=0; c!=nc; ++c){
       int id = surface_mesh->cell_map(false).GID(c);
       std::stringstream name_ss, name_sf;

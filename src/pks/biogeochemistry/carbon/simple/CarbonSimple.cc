@@ -79,12 +79,12 @@ CarbonSimple::Setup(const Teuchos::Ptr<State>& S) {
 
 // computes the non-linear functional f = f(t,u,udot)
 void
-CarbonSimple::Functional(const double t, const TreeVector& u, TreeVector& f) {
+CarbonSimple::FunctionalTimeDerivative(const double t, const TreeVector& u, TreeVector& f) {
   // VerboseObject stuff.
   Teuchos::OSTab tab = vo_->getOSTab();
 
   // eventually we need to ditch this multi-state approach --etc
-  ASSERT(std::abs(S_inter_->time() - t) < 1.e-4*S_next_->time() - S_inter_->time());
+  AMANZI_ASSERT(std::abs(S_inter_->time() - t) < 1.e-4*S_next_->time() - S_inter_->time());
   PK_Physical_Default::Solution_to_State(u, S_inter_);
 
   // debugging
@@ -122,7 +122,7 @@ CarbonSimple::CalculateDiagnostics(const Teuchos::RCP<State>& S) {
   // Call the functional.  This ensures that the vis gets updated values,
   // despite the fact that they have not yet been updated.
   TreeVector dudt(*solution_);
-  Functional(S->time(), *solution_old_, dudt);
+  FunctionalTimeDerivative(S->time(), *solution_old_, dudt);
 }
 
 

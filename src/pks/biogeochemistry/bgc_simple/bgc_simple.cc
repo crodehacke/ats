@@ -66,7 +66,6 @@ void BGCSimple::Setup(const Teuchos::Ptr<State>& S) {
 
   // my mesh is the subsurface mesh, but we need the surface mesh, index by column, as well
   mesh_surf_ = S->GetMesh("surface");
-  soil_part_name_ = plist_->get<std::string>("soil partition name");
 
   // Create the additional, non-managed data structures
   int nPools = plist_->get<int>("number of carbon pools", 7);
@@ -92,7 +91,7 @@ void BGCSimple::Setup(const Teuchos::Ptr<State>& S) {
     pft_names.push_back(pft_name);
   }
 
-  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::OWNED);
+  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::Parallel_type::OWNED);
   pfts_old_.resize(ncols);
   pfts_.resize(ncols);
   for (unsigned int col=0; col!=ncols; ++col) {
@@ -109,7 +108,7 @@ void BGCSimple::Setup(const Teuchos::Ptr<State>& S) {
     if (ncells_per_col_ < 0) {
       ncells_per_col_ = ncol_cells;
     } else {
-      ASSERT(ncol_cells == ncells_per_col_);
+      AMANZI_ASSERT(ncol_cells == ncells_per_col_);
     }
 
     pfts_old_[col].resize(pft_names.size());
@@ -255,7 +254,7 @@ void BGCSimple::Initialize(const Teuchos::Ptr<State>& S) {
   // -- set the subfield names
   Teuchos::RCP<Field_CompositeVector> leaf_biomass_field_cv =
       Teuchos::rcp_dynamic_cast<Field_CompositeVector>(leaf_biomass_field);
-  ASSERT(leaf_biomass_field_cv != Teuchos::null);
+  AMANZI_ASSERT(leaf_biomass_field_cv != Teuchos::null);
 
   int npft = pfts_old_[0].size();
   std::vector<std::vector<std::string> > names;
@@ -274,7 +273,7 @@ void BGCSimple::Initialize(const Teuchos::Ptr<State>& S) {
       Epetra_MultiVector& bio = *S->GetFieldData("surface-leaf_biomass", name_)
           ->ViewComponent("cell", false);
       
-      int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::OWNED);
+      int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::Parallel_type::OWNED);
       for (int col=0; col!=ncols; ++col) {
         for (int i=0; i!=npft; ++i) {
           pfts_old_[col][i]->Bleaf = bio[i][col];
@@ -301,7 +300,7 @@ void BGCSimple::Initialize(const Teuchos::Ptr<State>& S) {
   const Epetra_Vector& temp = *(*S->GetFieldData("temperature")
 				->ViewComponent("cell",false))(0);
 
-  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::OWNED);
+  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::Parallel_type::OWNED);
   for (int col=0; col!=ncols; ++col) {
     FieldToColumn_(col, temp, col_temp.ptr());
     ColDepthDz_(col, col_depth.ptr(), col_dz.ptr());
@@ -327,7 +326,7 @@ void BGCSimple::CommitStep(double told, double tnew, const Teuchos::RCP<State>& 
   // the step as succesful.
   double dt = tnew - told;
 
-  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::OWNED);
+  int ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::Parallel_type::OWNED);
   int npft = pfts_old_[0].size();
   for (int col=0; col!=ncols; ++col) {
     for (int i=0; i!=npft; ++i) {
@@ -351,7 +350,7 @@ bool BGCSimple::AdvanceStep(double t_old, double t_new, bool reinit) {
   // Copy the PFT from old to new, in case we failed the previous attempt at
   // this timestep.  This is hackery to get around the fact that PFTs are not
   // (but should be) in state.
-  AmanziMesh::Entity_ID ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::OWNED);
+  AmanziMesh::Entity_ID ncols = mesh_surf_->num_entities(AmanziMesh::CELL, AmanziMesh::Parallel_type::OWNED);
   for (AmanziMesh::Entity_ID col=0; col!=ncols; ++col) {
     int npft = pfts_old_[col].size();
     for (int i=0; i!=npft; ++i) {
@@ -389,24 +388,24 @@ bool BGCSimple::AdvanceStep(double t_old, double t_new, bool reinit) {
   const Epetra_MultiVector& pres = *S_inter_->GetFieldData("pressure")
       ->ViewComponent("cell",false);
 
-  S_inter_->GetFieldEvaluator("surface-incoming_shortwave_radiation")->HasFieldChanged(S_inter_.ptr(), name_);
-  const Epetra_MultiVector& qSWin = *S_inter_->GetFieldData("surface-incoming_shortwave_radiation")
+  S_next_->GetFieldEvaluator("surface-incoming_shortwave_radiation")->HasFieldChanged(S_next_.ptr(), name_);
+  const Epetra_MultiVector& qSWin = *S_next_->GetFieldData("surface-incoming_shortwave_radiation")
       ->ViewComponent("cell",false);
 
-  S_inter_->GetFieldEvaluator("surface-air_temperature")->HasFieldChanged(S_inter_.ptr(), name_);
-  const Epetra_MultiVector& air_temp = *S_inter_->GetFieldData("surface-air_temperature")
+  S_next_->GetFieldEvaluator("surface-air_temperature")->HasFieldChanged(S_next_.ptr(), name_);
+  const Epetra_MultiVector& air_temp = *S_next_->GetFieldData("surface-air_temperature")
       ->ViewComponent("cell",false);
 
-  S_inter_->GetFieldEvaluator("surface-relative_humidity")->HasFieldChanged(S_inter_.ptr(), name_);
-  const Epetra_MultiVector& rel_hum = *S_inter_->GetFieldData("surface-relative_humidity")
+  S_next_->GetFieldEvaluator("surface-relative_humidity")->HasFieldChanged(S_next_.ptr(), name_);
+  const Epetra_MultiVector& rel_hum = *S_next_->GetFieldData("surface-relative_humidity")
       ->ViewComponent("cell",false);
 
-  S_inter_->GetFieldEvaluator("surface-wind_speed")->HasFieldChanged(S_inter_.ptr(), name_);
-  const Epetra_MultiVector& wind_speed = *S_inter_->GetFieldData("surface-wind_speed")
+  S_next_->GetFieldEvaluator("surface-wind_speed")->HasFieldChanged(S_next_.ptr(), name_);
+  const Epetra_MultiVector& wind_speed = *S_next_->GetFieldData("surface-wind_speed")
       ->ViewComponent("cell",false);
 
-  S_inter_->GetFieldEvaluator("surface-co2_concentration")->HasFieldChanged(S_inter_.ptr(), name_);
-  const Epetra_MultiVector& co2 = *S_inter_->GetFieldData("surface-co2_concentration")
+  S_next_->GetFieldEvaluator("surface-co2_concentration")->HasFieldChanged(S_next_.ptr(), name_);
+  const Epetra_MultiVector& co2 = *S_next_->GetFieldData("surface-co2_concentration")
       ->ViewComponent("cell",false);
 
   // note that this is used as the column area, which is maybe not always
@@ -432,8 +431,6 @@ bool BGCSimple::AdvanceStep(double t_old, double t_new, bool reinit) {
   Epetra_SerialDenseVector trans_c(ncells_per_col_);
   double sw_c(0.);
 
-  // Grab the mesh partition to get soil properties
-  Teuchos::RCP<const Functions::MeshPartition> mp = S_next_->GetMeshPartition(soil_part_name_);
   total_lai.PutScalar(0.);
 
   // loop over columns and apply the model
@@ -561,7 +558,7 @@ void BGCSimple::ColDepthDz_(AmanziMesh::Entity_ID col,
 
     // -- fill the val
     (*dz)[i] = mesh_->face_centroid(f_above)[2] - mesh_->face_centroid(f_below)[2];
-    ASSERT( (*dz)[i] > 0. );
+    AMANZI_ASSERT( (*dz)[i] > 0. );
     f_above = f_below;
   }
 

@@ -1,6 +1,8 @@
 #include "Teuchos_XMLParameterListHelpers.hpp"
 #include "EpetraExt_RowMatrixOut.h"
 
+#include "LinearOperatorFactory.hh"
+
 #include "mpc_surface_subsurface_helpers.hh"
 #include "mpc_coupled_water.hh"
 
@@ -40,7 +42,6 @@ MPCCoupledWater::Setup(const Teuchos::Ptr<State>& S) {
   surf_flow_pk_ = sub_pks_[1];
   
   // call the MPC's setup, which calls the sub-pk's setups
-
   StrongMPC<PK_PhysicalBDF_Default>::Setup(S);
 
   // require the coupling fields, claim ownership
@@ -54,13 +55,15 @@ MPCCoupledWater::Setup(const Teuchos::Ptr<State>& S) {
   precon_surf_ = surf_flow_pk_->preconditioner();
 
   // -- push the surface local ops into the subsurface global operator
-  for (Operators::Operator::op_iterator op = precon_surf_->OpBegin();
-       op != precon_surf_->OpEnd(); ++op) {
+  for (Operators::Operator::op_iterator op = precon_surf_->begin();
+       op != precon_surf_->end(); ++op) {
     precon_->OpPushBack(*op);
   }
 
   // -- must re-symbolic assemble subsurf operators, now that they have a surface operator
   precon_->SymbolicAssembleMatrix();
+  precon_->InitializePreconditioner(plist_->sublist("preconditioner"));
+
 
   // Potentially create a linear solver
   if (plist_->isSublist("linear solver")) {
@@ -104,7 +107,7 @@ MPCCoupledWater::Initialize(const Teuchos::Ptr<State>& S) {
 }
 
 void
-MPCCoupledWater::set_states(const Teuchos::RCP<const State>& S,
+MPCCoupledWater::set_states(const Teuchos::RCP<State>& S,
                             const Teuchos::RCP<State>& S_inter,
                             const Teuchos::RCP<State>& S_next) {
   StrongMPC<PK_PhysicalBDF_Default>::set_states(S,S_inter,S_next);
@@ -113,15 +116,15 @@ MPCCoupledWater::set_states(const Teuchos::RCP<const State>& S,
 
 
 // -- computes the non-linear functional g = g(t,u,udot)
-//    By default this just calls each sub pk Functional().
+//    By default this just calls each sub pk FunctionalResidual().
 void
-MPCCoupledWater::Functional(double t_old, double t_new, Teuchos::RCP<TreeVector> u_old,
+MPCCoupledWater::FunctionalResidual(double t_old, double t_new, Teuchos::RCP<TreeVector> u_old,
                             Teuchos::RCP<TreeVector> u_new, Teuchos::RCP<TreeVector> g) {
   // propagate updated info into state
   Solution_to_State(*u_new, S_next_);
 
   // Evaluate the surface flow residual
-  surf_flow_pk_->Functional(t_old, t_new, u_old->SubVector(1),
+  surf_flow_pk_->FunctionalResidual(t_old, t_new, u_old->SubVector(1),
                             u_new->SubVector(1), g->SubVector(1));
 
   // The residual of the surface flow equation provides the mass flux from
@@ -132,7 +135,7 @@ MPCCoupledWater::Functional(double t_old, double t_new, Teuchos::RCP<TreeVector>
   source = *g->SubVector(1)->Data()->ViewComponent("cell",false);
 
   // Evaluate the subsurface residual, which uses this flux as a Neumann BC.
-  domain_flow_pk_->Functional(t_old, t_new, u_old->SubVector(0),
+  domain_flow_pk_->FunctionalResidual(t_old, t_new, u_old->SubVector(0),
           u_new->SubVector(0), g->SubVector(0));
 
   // All surface to subsurface fluxes have been taken by the subsurface.
@@ -151,6 +154,8 @@ int MPCCoupledWater::ApplyPreconditioner(Teuchos::RCP<const TreeVector> u,
     *vo_->os() << "Precon applying subsurface operator." << std::endl;
   int ierr = lin_solver_->ApplyInverse(*u->SubVector(0)->Data(), *Pu->SubVector(0)->Data());
 
+  if (vo_->os_OK(Teuchos::VERB_EXTREME))
+    *vo_->os() << "Precon applying  CopySubsurfaceToSurface." << std::endl;
   // Copy subsurface face corrections to surface cell corrections
   CopySubsurfaceToSurface(*Pu->SubVector(0)->Data(),
                           Pu->SubVector(1)->Data().ptr());
@@ -177,7 +182,7 @@ int MPCCoupledWater::ApplyPreconditioner(Teuchos::RCP<const TreeVector> u,
     *vo_->os() << " Surface precon:" << std::endl;
     surf_db_->WriteVectors(vnames, vecs, true);
   }
-  
+
   return (ierr > 0) ? 0 : 1;
 }
 
@@ -195,7 +200,7 @@ MPCCoupledWater::UpdatePreconditioner(double t,
   StrongMPC<PK_PhysicalBDF_Default>::UpdatePreconditioner(t, up, h);
   
   precon_->AssembleMatrix();
-  precon_->InitPreconditioner(plist_->sublist("preconditioner"));
+  precon_->UpdatePreconditioner();
   
 }
 
@@ -274,7 +279,7 @@ MPCCoupledWater::ModifyCorrection(double h, Teuchos::RCP<const TreeVector> res,
 
   // -- accumulate globally
   int n_modified_l = n_modified;
-  u->SubVector(0)->Data()->Comm().SumAll(&n_modified_l, &n_modified, 1);
+  u->SubVector(0)->Data()->Comm()->SumAll(&n_modified_l, &n_modified, 1);
   bool modified = (n_modified > 0) || (damping < 1.);
 
   // -- calculate consistent subsurface cells

@@ -10,7 +10,7 @@
 #ifndef AMANZI_RELATIONS_TOP_CELLS_SURFACE_EVALUATOR_
 #define AMANZI_RELATIONS_TOP_CELLS_SURFACE_EVALUATOR_
 
-#include "factory.hh"
+#include "Factory.hh"
 
 #include "secondary_variable_field_evaluator.hh"
 
@@ -31,7 +31,7 @@ class TopCellsSurfaceEvaluator : public SecondaryVariableFieldEvaluator {
           const Teuchos::Ptr<CompositeVector>& result);
   virtual void EvaluateFieldPartialDerivative_(const Teuchos::Ptr<State>& S,
           Key wrt_key, const Teuchos::Ptr<CompositeVector>& result) {
-    ASSERT(0);
+    AMANZI_ASSERT(0);
   }
 
   virtual void EnsureCompatibility(const Teuchos::Ptr<State>& S);

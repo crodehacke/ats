@@ -6,8 +6,7 @@ import argparse
 
 def get_keys(dat, time_range=None):
     """Collect all time index keys, optionally only those in a given 2-tuple of start and end time."""
-    keys = dat[dat.keys()[0]].keys()
-    keys.sort(lambda a,b: int.__cmp__(int(a),int(b)))
+    keys = sorted(dat[next(iter(dat.keys()))].keys(), key=int)
 
     if time_range is not None:
         all_times = get_times(dat, keys)
@@ -16,11 +15,10 @@ def get_keys(dat, time_range=None):
 
 def get_times(dat, keys=None):
     """Get the times in the file, optionally at a given list of time index keys."""
-    a_field = dat.keys()[0]
+    a_field = next(iter(dat.keys()))
 
     if keys is None:
-        keys = dat[dat.keys()[0]].keys()
-        keys.sort(lambda a,b: int.__cmp__(int(a),int(b)))
+        keys = get_keys(dat)
 
     times = [dat[a_field][key].attrs['Time'] for key in keys]
     return times
@@ -32,8 +30,7 @@ def get_keys_and_times(dat, time_range=None):
         keys = [key for key,time in zip(all_keys,all_times) if time_range[0] <= time <= time_range[1]]
         times = [time for time in all_times if time_range[0] <= time <= time_range[1]]        
     else:
-        keys = dat[dat.keys()[0]].keys()
-        keys.sort(lambda a,b: int.__cmp__(int(a),int(b)))
+        keys = get_keys(dat)
         times = get_times(dat, keys)
 
     return keys, times
@@ -82,13 +79,13 @@ def subsetFile(directory=".", base="visdump_data.h5", outfile="my_visdump_data.h
         times = times[::interval]
 
     if (interval == 1) and (null_time_range) and (inds == None) and dry_run:
-        print "Available times (count = %d):"%len(times), times
+        print("Available times (count = %d):"%len(times), times)
         return (None,None)
     elif dry_run:
-        print "Matched times (count = %d):"%len(times), times
+        print("Matched times (count = %d):"%len(times), times)
         return (None, None)
         
-    print "Transfering %d times to %s"%(len(times),outfile)
+    print("Transfering %d times to %s"%(len(times),outfile))
     
     if names is None:
         names = dat.keys()
@@ -119,10 +116,10 @@ def subsetXMFFile(out_directory, base="visdump_data.VisIt.xmf", inds=None, inter
         files = files[::interval]
 
     if (interval == 1) and (null_time_range) and (inds == None) and dry_run:
-        print "Available times (count = %d):"%len(times), times
+        print("Available times (count = %d):"%len(times), times)
         return (None,None)
     elif dry_run:
-        print "Matched times (count = %d):"%len(times), times
+        print("Matched times (count = %d):"%len(times), times)
         return (None, None)
 
     to_remove = [f for f in xmf_in.getroot()[0][0] if f not in files]
@@ -161,7 +158,7 @@ def subsetXMFFile(out_directory, base="visdump_data.VisIt.xmf", inds=None, inter
             try:
                 assert not os.path.exists(out_f)
             except AssertionError:
-                print "Exists:", out_f
+                print("Exists:", out_f)
                 raise AssertionError
 
             step_xmf = etree.parse(in_f)

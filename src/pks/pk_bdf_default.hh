@@ -12,36 +12,30 @@
 
 /*!
 
-``PKBDFBase`` is a base class from which PKs that want to use the ``BDF``
+`PKBDFBase` is a base class from which PKs that want to use the `BDF`
 series of implicit time integrators must derive.  It specifies both the
-``BDFFnBase`` interface and implements some basic functionality for ``BDF``
+`BDFFnBase` interface and implements some basic functionality for `BDF`
 PKs.
 
-* `"initial time step`" ``[double]`` **1.**
+.. _pk-bdf-default-spec:
+.. admonition:: pk-bdf-default-spec
 
-  The initial timestep size for the PK, this ensures that the initial timestep
-  will not be **larger** than this value.
+    * `"initial time step`" ``[double]`` **1.** Initial time step size [s]
 
-* `"assemble preconditioner`" ``[bool]`` **true** 
+    * `"assemble preconditioner`" ``[bool]`` **true** A flag, typically not set
+      by user but by an MPC.
 
-  A flag for the PK to not assemble its preconditioner if it is not needed by
-  a controlling PK.  This is usually set by the MPC, not by the user.
+    * `"time integrator`" ``[implicit-time-integrator-typed-spec]`` **optional**
+      A TimeIntegrator_.  Note that this is only provided if this PK is not
+      strongly coupled to other PKs.
 
-In the top-most (in the PK tree) PK that is meant to be integrated implicitly,
-several additional specs are included.  For instance, in a strongly coupled
-flow and energy problem, these specs are included in the ``StrongMPC`` that
-couples the flow and energy PKs, not to the flow or energy PK itself.
-  
-* `"time integrator`" ``[time-integrator-spec]`` is a TimeIntegrator_.
+    * `"preconditioner`" ``[preconditioner-typed-spec]`` **optional** A Preconditioner_.
+      Note that this is only used if this PK is not strongly coupled to other PKs.
 
-  Note that this is only provided in the top-most ``PKBDFBase`` in the tree --
-  this is often a StrongMPC_ or a class deriving from StrongMPC_.
+    INCLUDES:
 
-* `"preconditioner`" ``[preconditioner-spec]`` is a Preconditioner_.
+    - ``[pk-spec]`` This *is a* PK_.
 
-  This spec describes how to form the (approximate) inverse of the preconditioner.
-  
-NOTE: ``PKBDFBase  (v)-->`` PKDefaultBase_
 
 */
 
@@ -97,7 +91,7 @@ class PK_BDF_Default : public PK_BDF {
   // virtual void Solution_to_State(TreeVector& soln,
   //                                const Teuchos::RCP<State>& S);
 
-  virtual void set_states(const Teuchos::RCP<const State>& S,
+  virtual void set_states(const Teuchos::RCP<State>& S,
                         const Teuchos::RCP<State>& S_inter,
                         const Teuchos::RCP<State>& S_next);
 
@@ -120,6 +114,7 @@ class PK_BDF_Default : public PK_BDF {
     return AmanziSolvers::FnBaseDefs::CORRECTION_NOT_MODIFIED;
   }
 
+  virtual void ResetTimeStepper(double time);
 
   // experimental approach -- calling this indicates that the time
   // integration scheme is changing the value of the solution in

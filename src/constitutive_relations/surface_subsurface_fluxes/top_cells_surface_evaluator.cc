@@ -15,9 +15,17 @@ namespace Relations {
 
 TopCellsSurfaceEvaluator::TopCellsSurfaceEvaluator(Teuchos::ParameterList& plist) :
     SecondaryVariableFieldEvaluator(plist) {
-  my_key_ = plist_.get<std::string>("subsurface key");
-  dependency_key_ = plist_.get<std::string>("surface key");
+  auto domain = Keys::getDomain(my_key_);
+  std::string surf_domain;
+  if (Keys::getDomain(my_key_).empty()) {
+    surf_domain = "surface";
+  } else {
+    surf_domain = Key("surface_")+domain;
+  }
+  surf_domain = plist_.get<std::string>("surface domain name", surf_domain);
+  dependency_key_ = Keys::readKey(plist_, surf_domain, "surface", Keys::getVarName(my_key_));
   dependencies_.insert(dependency_key_);
+
   negate_ = plist_.get<bool>("negate", false);
 }
 
@@ -41,15 +49,15 @@ TopCellsSurfaceEvaluator::EvaluateField_(const Teuchos::Ptr<State>& S,
 
 
   int ncells_surf = surf_vector->Mesh()->num_entities(AmanziMesh::CELL,
-          AmanziMesh::OWNED);
+          AmanziMesh::Parallel_type::OWNED);
   for (unsigned int c=0; c!=ncells_surf; ++c) {
     // get the face on the subsurface mesh
     AmanziMesh::Entity_ID f = surf_vector->Mesh()->entity_get_parent(AmanziMesh::CELL, c);
 
     // get the cell interior to the face
     AmanziMesh::Entity_ID_List cells;
-    result->Mesh()->face_get_cells(f, AmanziMesh::USED, &cells);
-    ASSERT(cells.size() == 1);
+    result->Mesh()->face_get_cells(f, AmanziMesh::Parallel_type::ALL, &cells);
+    AMANZI_ASSERT(cells.size() == 1);
 
     result_cells[0][cells[0]] = surf_vector_cells[0][c];
   }
@@ -60,7 +68,7 @@ TopCellsSurfaceEvaluator::EvaluateField_(const Teuchos::Ptr<State>& S,
 void
 TopCellsSurfaceEvaluator::EnsureCompatibility(const Teuchos::Ptr<State>& S) {
   // Ensure my field exists.  Requirements should be already set.  Claim ownership.
-  ASSERT(my_key_ != std::string(""));
+  AMANZI_ASSERT(my_key_ != std::string(""));
   Teuchos::RCP<CompositeVectorSpace> my_fac = S->RequireField(my_key_, my_key_);
 
   // check plist for vis or checkpointing control
